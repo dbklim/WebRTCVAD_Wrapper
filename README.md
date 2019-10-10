@@ -17,31 +17,33 @@ pip install git+https://github.com/Desklop/WebRTCVAD_Wrapper
 
 ## Использование
 
-1. Из вашего кода Python:
+1. Из вашего кода Python (извлечение фрагментов с речью/звуком из `test.wav` и сохранение их как `segment_%i.wav`):
 ```python
 from webrtcvad_wrapper import WebRTCVAD
 
-vad = WebRTCVAD()
+vad = WebRTCVAD(sensitivity_mode=3)
 
 audio = vad.read_wav('test.wav')
 filtered_segments = vad.filter(audio)
 
 segments_with_voice = [filtered_segment[1] for filtered_segment in filtered_segments if filtered_segment[0]]
 for j, segment in enumerate(segments_with_voice):
-    path = 'segment1_%002d.wav' % (j + 1)
+    path = 'segment_%002d.wav' % (j + 1)
     print("Сохранение '%s'" % (path))
     vad.write_wav(path, segment)
 ```
 
-Класс [WebRTCVAD]() содержит следующие методы:
-- `read_wav()`: загрузка .wav аудиозаписи и приведение её в поддерживаемый формат
-- `write_wav()`: сохранение найденных фрагментов в .wav аудиозапись
-- `get_frames()`: извлечение фреймов с необходимым смещением
-- `filter_frames()`: обработка вывода от `webrtcvad.Vad().is_speech()`
-- `filter()`: объединяет `get_frames()` и `filter_frames()`
-- `set_mode()`: установка чувствительности WebRTC VAD
+Класс [WebRTCVAD](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L37) содержит следующие методы:
+- [`read_wav()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L208): загрузка .wav аудиозаписи и приведение её в поддерживаемый формат
+- [`write_wav()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L241): сохранение найденных фрагментов в .wav аудиозапись
+- [`get_frames()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L155): извлечение фреймов с необходимым смещением
+- [`filter_frames()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L87): обработка вывода от `webrtcvad.Vad().is_speech()`
+- [`filter()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L66): объединяет `get_frames()` и `filter_frames()`
+- [`set_mode()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L57): установка чувствительности WebRTC VAD
 
-2. Как инструмент командной строки:
+---
+
+2. В качестве инструмента командной строки:
 ```
 python3 -m webrtcvad_wrapper.cli input.wav output.wav
 ```
@@ -50,9 +52,9 @@ python3 -m webrtcvad_wrapper.cli input.wav output.wav
 - `output.wav` или `output` - шаблонное имя для .wav аудиозаписей, в которые будут сохранены найденные фрагменты с речью/звуком в формате `output_%i.wav`
 
 В данном варианте используются следующие параметры:
-- WebRTC VAD с уровнем чувствительности/"агрессивности" 3
-- длина фрейма 10 миллисекунд
-- фрагмент считается фрагментом с речью/звуком, если он содержит более 90% фреймов, в которых webrtcvad нашёл речь/звук
+- WebRTC VAD с уровнем "агрессивности"/чувствительности `3`
+- длина фрейма `10` миллисекунд
+- фрагмент считается фрагментом с речью/звуком, если он содержит более `90%` фреймов, в которых webrtcvad нашёл речь/звук
 
 ---
 
