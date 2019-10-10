@@ -52,3 +52,5 @@ setup(
 
 print("\nWebRTCVAD-Wrapper is ready for work and defense!")
 print("All information about the module is available at https://github.com/Desklop/WebRTCVAD_Wrapper")
+
+# Для сборки пакета выполнить: python3 setup.py sdist
