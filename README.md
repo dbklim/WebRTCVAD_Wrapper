@@ -17,7 +17,7 @@ pip install git+https://github.com/Desklop/WebRTCVAD_Wrapper
 
 ## Использование
 
-1. Из вашего кода Python (извлечение фрагментов с речью/звуком из `test.wav` и сохранение их как `segment_%i.wav`):
+**1.** Из вашего кода Python (извлечение фрагментов с речью/звуком из `test.wav` и сохранение их как `segment_%i.wav`):
 ```python
 from webrtcvad_wrapper import WebRTCVAD
 
@@ -41,9 +41,24 @@ for j, segment in enumerate(segments_with_voice):
 - [`filter()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L66): объединяет `get_frames()` и `filter_frames()`
 - [`set_mode()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L57): установка чувствительности WebRTC VAD
 
+Более подробная информация о поддерживаемых аргументах и работе каждого метода находится в комментариях в исходном коде этих методов.
+
+Особенности:
+- WebRTC VAD принимает только PCM 16 бит, моно с частотой дискретизации 8, 16, 32 или 48кГц, по этому метод `read_wav()` автоматически приводит вашу wav аудиозапись в необходимый формат
+- WebRTC VAD работает только с фреймами/кадрами длиной 10, 20 или 30 миллисекунд, об этом заботится метод `get_frames()`
+- метод `set_mode()` позволяет задать уровень чувствительности (его так же можно задать при создании объекта `WebRTCVAD(0)`), поддерживаются значения от `0` до `3`, где `3` - максимальная чувствительность (по умолчанию используется значение `3`)
+- методы `get_frames()`, `filter_frames()` и `filter()` возвращают список из фреймов [`webrtcvad_wrapper.Frame`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L29), которые можно легко конвертировать в байтовою строку (без заголовков .wav, только аудиоданные):
+```python
+audio = vad.read_wav('test.wav')
+filtered_segments = vad.filter(audio)
+
+segments_with_voice = [filtered_segment[1] for filtered_segment in filtered_segments if filtered_segment[0]]
+segments_bytes_with_voice = [b''.join([frame.bytes for frame in segment]) for segment in segments_with_voice]
+```
+
 ---
 
-2. В качестве инструмента командной строки:
+**2.** В качестве инструмента командной строки:
 ```
 python3 -m webrtcvad_wrapper.cli input.wav output.wav
 ```
