@@ -74,18 +74,18 @@ class VAD:
         self.sensitivity_mode = sensitivity_mode
 
 
-    def filter(self, audio, frame_duration_ms=10, sample_rate=None, padding_duration_ms=50, threshold_voice_frames=0.9, threshold_rms=0.1, threshold_zrc=0.5):
+    def filter(self, audio, frame_duration_ms=10, sample_rate=None, padding_duration_ms=50, threshold_voice_frames=0.9, threshold_rms=0.1, threshold_zcr=0.5):
         ''' Разбить аудиозапись на фреймы и отфильтровать их по наличию речи/звука.
         
         Если sensitivity_mode=0..3:\n
         Использует скользящее окно для фильтрации: если более 90% фреймов в окне содержат звук, то данное окно помечается как окно с речью.
         Окно дополняется спереди и сзади на padding_duration_ms, что бы обеспечить небольшую тишину в начале и конце или что бы отрывок речи был полным.
         Затем сохранённые фреймы переводятся во временные метки в исходной аудиозаписи.
-        В данном режиме аргументы threshold_rms и threshold_zrc игнорируются.
+        В данном режиме аргументы threshold_rms и threshold_zcr игнорируются.
 
         Если sensitivity_mode=4:\n
         Метод агрессивный, часто игнорирует вообще всё, кроме гласных и звонких согласных звуков в речи (или просто громких звуков). Фильтрация работает так:
-        на основе RMS (root-mean-square, отражает мощность звуковой волны) и ZRC (zero-crossing rate, частоты пересечения нуля) по заданным порогам
+        на основе RMS (root-mean-square, отражает мощность звуковой волны) и ZCR (zero-crossing rate, частоты пересечения нуля) по заданным порогам
         фильтруются фреймы, которые затем переводятся во временные метки в исходной аудиозаписи.
         В данном режиме аргументы padding_duration_ms и threshold_voice_frames игнорируются.
 
@@ -99,7 +99,7 @@ class VAD:
         4. padding_duration_ms - длина дополняемых спереди и сзади частей в миллисекундах
         5. threshold_voice_frames - порог количества фреймов со звуком в окне
         6. threshold_rms - порог определения речи (порог RMS) (только когда sensitivity_mode=4)
-        7. threshold_zrc - порог определения тишины (порог ZRC) (только когда sensitivity_mode=4)
+        7. threshold_zcr - порог определения тишины (порог ZRC) (только когда sensitivity_mode=4)
         8. возвращает список из списков с границами сегментов следующего формата:
         [
             [0.00, 1.23, True/False],
@@ -118,22 +118,22 @@ class VAD:
             frames = self.__get_frames(audio, frame_duration_ms, sample_rate)
             filtered_segments = self.__filter_frames(frames, padding_duration_ms, threshold_voice_frames)
         else:
-            filtered_segments = self.rough_filter(audio, frame_duration_ms, sample_rate, threshold_rms, threshold_zrc)
+            filtered_segments = self.rough_filter(audio, frame_duration_ms, sample_rate, threshold_rms, threshold_zcr)
         return filtered_segments
 
 
-    def rough_filter(self, audio, frame_duration_ms=10, sample_rate=None, threshold_rms=0.1, threshold_zrc=0.5):
+    def rough_filter(self, audio, frame_duration_ms=10, sample_rate=None, threshold_rms=0.1, threshold_zcr=0.5):
         ''' Разбить аудиозапись на фреймы и отфильтровать их по наличию речи/звука. Метод агрессивный, часто игнорирует вообще всё, кроме
         гласных и звонких согласных звуков в речи (или просто громких звуков).
         
-        Фильтрация работает так: на основе RMS (root-mean-square, отражает мощность звуковой волны) и ZRC (zero-crossing rate, частоты пересечения нуля)
+        Фильтрация работает так: на основе RMS (root-mean-square, отражает мощность звуковой волны) и ZCR (zero-crossing rate, частоты пересечения нуля)
         по заданным порогам фильтруются фреймы, которые затем переводятся во временные метки в исходной аудиозаписи.
 
         1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка с аудиоданными (без заголовков wav)
         2. frame_duration_ms - длина фрейма в миллисекундах (рекомендуются значения 10, 20 или 30 мс)
         3. sample_rate - частота дискретизации, только если audio - байтовая строка
         4. threshold_rms - порог определения речи (порог RMS)
-        5. threshold_zrc - порог определения тишины (порог ZRC)
+        5. threshold_zcr - порог определения тишины (порог ZCR)
         6. возвращает список из списков с границами сегментов следующего формата:
         [
             [0.00, 1.23, True/False],
@@ -169,16 +169,16 @@ class VAD:
         rms = librosa.util.normalize(rms, axis=0)
 
         # Вычисление частот пересечения нуля
-        zrc = librosa.feature.zero_crossing_rate(audio_data, frame_length=frame_len, hop_length=frame_shift, threshold=0)
-        zrc = zrc[0]
+        zcr = librosa.feature.zero_crossing_rate(audio_data, frame_length=frame_len, hop_length=frame_shift, threshold=0)
+        zcr = zcr[0]
 
         # Фильтрация значений RMS и ZRC по заданным порогам и сохранение номеров фреймов, содержащих речь/звук
         # Идентично этому:
         # ff = []
         # for i in range(0,len(rms)):
-        #     if ((rms[i] > threshold_rms) | (zrc[i] > threshold_zrc)):
+        #     if ((rms[i] > threshold_rms) | (zrc[i] > threshold_zcr)):
         #          ff.append(i)
-        voice_frame_numbers = np.where((rms > threshold_rms) | (zrc > threshold_zrc))[0]
+        voice_frame_numbers = np.where((rms > threshold_rms) | (zcr > threshold_zcr))[0]
 
         # Определение границ речи/звука
         start_voice_frame_numbers = [voice_frame_numbers[0]]
