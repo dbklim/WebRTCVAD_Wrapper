@@ -4,16 +4,16 @@
 #       OS : GNU/Linux Ubuntu 16.04 or 18.04
 # LANGUAGE : Python 3.5.2 or later
 #   AUTHOR : Klim V. O.
-#     DATE : 10.10.2019
+#     DATE : 14.10.2019
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 '''
 Предназначен для удаления тишины/извлечения фрагментов с речью (или другими звуками) из wav аудиозаписи.
 Для работы используется py-webrtcvad (https://github.com/wiseman/py-webrtcvad).
 
-Содержит классы Frame и WebRTCVAD. Подробнее в https://github.com/Desklop/WebRTCVAD_Wrapper.
+Содержит класс VAD. Подробнее в https://github.com/Desklop/WebRTCVAD_Wrapper.
 
-Зависимости: pydub, webrtcvad.
+Зависимости: pydub, librosa, webrtcvad.
 '''
 
 import os
@@ -21,9 +21,11 @@ import sys
 import collections
 from pydub import AudioSegment
 import webrtcvad
+import librosa
+import numpy as np
 
 
-__version__ = 1.0
+__version__ = 1.1
 
 
 class Frame(object):
@@ -34,16 +36,20 @@ class Frame(object):
         self.duration = duration
 
 
-class WebRTCVAD:
+class VAD:
     ''' Предоставляет методы для упрощения работы с WebRTC VAD:
     - read_wav(): загрузка .wav аудиозаписи и приведение её в поддерживаемый формат
-    - write_wav(): сохранение найденных фрагментов в .wav аудиозапись
-    - get_frames(): извлечение фреймов с необходимым смещением
-    - filter_frames(): обработка вывода webrtcvad.Vad()is_speech()
-    - filter(): объединяет get_frames() и filter_frames()
-    - set_mode(): установка чувствительности WebRTC VAD
+    - write_wav(): сохранение .wav аудиозаписи
+    - filter(): разбиение аудиозаписи на фреймы и их фильтрация по наличию речи/звука
+    - set_mode(): установка чувствительности WebRTC VAD и включение дополнительного агрессивного режима
 
-    1. sensitivity_mode - целое число от 0 до 3, чем больше - тем выше чувствительность
+    1. sensitivity_mode - целое число от 0 до 4, чем больше - тем выше чувствительность
+
+    Значения от 0 до 3 являются базовыми для WebRTC VAD, значение 4 включает использование отдельного,
+    более грубого и строгого алгоритма, основанного на вычислении мощности звуковой волны и частот пересечения нуля.
+
+    Уровень чувствительности 4 предназначен в первую очередь для предобработки аудиозаписей для нейронных сетей (но не для распознавания речи),
+    так как он часто игнорирует вообще всё, кроме гласных и звонких согласных звуков в речи (или просто громких звуков).
 
     Оптимальное значение для качественных данных без шумов с высокой громкостью речи - 3. '''
 
@@ -56,43 +62,185 @@ class WebRTCVAD:
 
     def set_mode(self, sensitivity_mode=3):
         ''' Установка уровня "агрессивности"/чувствительности.
-        1. sensitivity_mode - целое число от 0 до 3, чем больше - тем выше чувствительность
+        1. sensitivity_mode - целое число от 0 до 4, чем больше - тем выше чувствительность
+
+        Значения от 0 до 3 являются базовыми для WebRTC VAD, значение 4 включает использование отдельного,
+        более грубого и строгого алгоритма, основанного на вычислении мощности звуковой волны и частот пересечения нуля.
         
         Оптимальное значение для качественных данных без шумов с высокой громкостью речи - 3. '''
 
-        self.vad.set_mode(sensitivity_mode)
+        if sensitivity_mode < 4:
+            self.vad.set_mode(sensitivity_mode)
+        self.sensitivity_mode = sensitivity_mode
 
 
-    def filter(self, audio, frame_duration_ms=10, sample_rate=None, padding_duration_ms=50, voice_frames_threshold=0.9):
-        ''' Получить фреймы из аудиозаписи и отфильтровать их. Использует скользящее окно для фильтрации: если более 90%
-        фреймов в окне содержат звук, то данное окно помечается как окно с речью. Окно дополняется спереди и сзади на padding_duration_ms,
-        что бы обеспечить небольшую тишину в начале и конце или что бы отрывок речи был полным.
+    def filter(self, audio, frame_duration_ms=10, sample_rate=None, padding_duration_ms=50, threshold_voice_frames=0.9, threshold_rms=0.1, threshold_zrc=0.5):
+        ''' Разбить аудиозапись на фреймы и отфильтровать их по наличию речи/звука.
+        
+        Если sensitivity_mode=0..3:\n
+        Использует скользящее окно для фильтрации: если более 90% фреймов в окне содержат звук, то данное окно помечается как окно с речью.
+        Окно дополняется спереди и сзади на padding_duration_ms, что бы обеспечить небольшую тишину в начале и конце или что бы отрывок речи был полным.
+        Затем сохранённые фреймы переводятся во временные метки в исходной аудиозаписи.
+        В данном режиме аргументы threshold_rms и threshold_zrc игнорируются.
 
-        1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка
+        Если sensitivity_mode=4:\n
+        Метод агрессивный, часто игнорирует вообще всё, кроме гласных и звонких согласных звуков в речи (или просто громких звуков). Фильтрация работает так:
+        на основе RMS (root-mean-square, отражает мощность звуковой волны) и ZRC (zero-crossing rate, частоты пересечения нуля) по заданным порогам
+        фильтруются фреймы, которые затем переводятся во временные метки в исходной аудиозаписи.
+        В данном режиме аргументы padding_duration_ms и threshold_voice_frames игнорируются.
+
+        sensitivity_mode можно задать через метод set_mode().
+
+        1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка с аудиоданными (без заголовков wav)
         2. frame_duration_ms - длина фрейма в миллисекундах (поддерживается только 10, 20 и 30 мс)
-        3. sample_rate - частота дискретизации (8, 16, 32 и 48кГц), только если audio - байтовая строка
+        3. sample_rate - частота дискретизации (поддерживается только 8, 16, 32 или 48кГц):
+            когда audio - объект pydub.AudioSegment и частота дискретизации None или не поддерживается - будет приведена к ближайшей из поддерживаемых
+            когда audio - байтовая строка, частота дискретизации должна быть задана и поддерживаться
         4. padding_duration_ms - длина дополняемых спереди и сзади частей в миллисекундах
-        5. voice_frames_threshold - порог количества фреймов со звуком в окне
-        6. возвращает список из tuple формата (True/False (где True: речь найдена), [список фреймов webrtcvad_wrapper.Frame])
+        5. threshold_voice_frames - порог количества фреймов со звуком в окне
+        6. threshold_rms - порог определения речи (порог RMS) (только когда sensitivity_mode=4)
+        7. threshold_zrc - порог определения тишины (порог ZRC) (только когда sensitivity_mode=4)
+        8. возвращает список из списков с границами сегментов следующего формата:
+        [
+            [0.00, 1.23, True/False],
+            ...
+        ]\n
+        Где:
+            0.00 - начало сегмента (в секундах)
+            1.23 - конец сегмента (в секундах)
+            True/False - True: речь/звук, False: тишина
 
         Оптимальные значения для качественных данных без шумов с высокой громкостью речи:
             padding_duration_ms - 50 мс
             frame_duration_ms - 10 мс '''
 
-        frames = self.get_frames(audio, frame_duration_ms, sample_rate)
-        filtered_segments = self.filter_frames(frames, padding_duration_ms, voice_frames_threshold)
+        if self.sensitivity_mode < 4:
+            frames = self.__get_frames(audio, frame_duration_ms, sample_rate)
+            filtered_segments = self.__filter_frames(frames, padding_duration_ms, threshold_voice_frames)
+        else:
+            filtered_segments = self.rough_filter(audio, frame_duration_ms, sample_rate, threshold_rms, threshold_zrc)
         return filtered_segments
 
 
-    def filter_frames(self, frames, padding_duration_ms=50, voice_frames_threshold=0.9):
+    def rough_filter(self, audio, frame_duration_ms=10, sample_rate=None, threshold_rms=0.1, threshold_zrc=0.5):
+        ''' Разбить аудиозапись на фреймы и отфильтровать их по наличию речи/звука. Метод агрессивный, часто игнорирует вообще всё, кроме
+        гласных и звонких согласных звуков в речи (или просто громких звуков).
+        
+        Фильтрация работает так: на основе RMS (root-mean-square, отражает мощность звуковой волны) и ZRC (zero-crossing rate, частоты пересечения нуля)
+        по заданным порогам фильтруются фреймы, которые затем переводятся во временные метки в исходной аудиозаписи.
+
+        1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка с аудиоданными (без заголовков wav)
+        2. frame_duration_ms - длина фрейма в миллисекундах (рекомендуются значения 10, 20 или 30 мс)
+        3. sample_rate - частота дискретизации, только если audio - байтовая строка
+        4. threshold_rms - порог определения речи (порог RMS)
+        5. threshold_zrc - порог определения тишины (порог ZRC)
+        6. возвращает список из списков с границами сегментов следующего формата:
+        [
+            [0.00, 1.23, True/False],
+            ...
+        ]\n
+        Где:
+            0.00 - начало сегмента
+            1.23 - конец сегмента
+            True/False - True: речь/звук, False: тишина '''
+
+        if isinstance(audio, AudioSegment):
+            audio_data = np.array(audio.get_array_of_samples())
+            audio_data = audio_data.astype(np.float64)
+            audio_data = librosa.util.normalize(audio_data, axis=0)
+            sample_rate = audio.frame_rate
+        elif isinstance(audio, bytes):
+            if self.sample_width != 2:
+                raise ValueError("[E] Когда type(audio) == bytes, 'sample_width' должен быть равен 2 байтам (16 бит)")
+            audio_data = np.frombuffer(audio, dtype=np.int16)
+            audio_data = audio_data.astype(np.float64)
+            audio_data = librosa.util.normalize(audio_data, axis=0)
+            if sample_rate is None:
+                raise ValueError("[E] Когда type(audio) == bytes, 'sample_rate' не может быть None")
+        else:
+            raise ValueError("[E] 'audio' может быть только AudioSegment или bytes")
+
+        frame_len = int(frame_duration_ms * sample_rate / 1000)
+        frame_shift = int(frame_duration_ms / 2 * sample_rate / 1000)
+
+        # Вычисление RMS (отражает мощность звуковой волны)
+        rms = librosa.feature.rms(audio_data, frame_length=frame_len, hop_length=frame_shift)
+        rms = rms[0]
+        rms = librosa.util.normalize(rms, axis=0)
+
+        # Вычисление частот пересечения нуля
+        zrc = librosa.feature.zero_crossing_rate(audio_data, frame_length=frame_len, hop_length=frame_shift, threshold=0)
+        zrc = zrc[0]
+
+        # Фильтрация значений RMS и ZRC по заданным порогам и сохранение номеров фреймов, содержащих речь/звук
+        # Идентично этому:
+        # ff = []
+        # for i in range(0,len(rms)):
+        #     if ((rms[i] > threshold_rms) | (zrc[i] > threshold_zrc)):
+        #          ff.append(i)
+        voice_frame_numbers = np.where((rms > threshold_rms) | (zrc > threshold_zrc))[0]
+
+        # Определение границ речи/звука
+        start_voice_frame_numbers = [voice_frame_numbers[0]]
+        end_voice_frame_numbers = []
+
+        shapeofidxs = np.shape(voice_frame_numbers)
+        for i in range(shapeofidxs[0]-1):
+            if (voice_frame_numbers[i + 1] - voice_frame_numbers[i]) != 1:
+                end_voice_frame_numbers.append(voice_frame_numbers[i])
+                start_voice_frame_numbers.append(voice_frame_numbers[i+1])
+        end_voice_frame_numbers.append(voice_frame_numbers[-1])
+
+        # Удаление последней границы, если её начало совпадает с концом
+        if end_voice_frame_numbers[-1] == start_voice_frame_numbers[-1]:
+            end_voice_frame_numbers.pop()
+            start_voice_frame_numbers.pop()
+        if len(start_voice_frame_numbers) != len(end_voice_frame_numbers):
+            raise ValueError('[E] Найденные границы с речью/звуком не совпадают')
+
+        # Перевод номеров фреймов во временные метки
+        start_voice_frame_numbers = np.array(start_voice_frame_numbers)
+        end_voice_frame_numbers = np.array(end_voice_frame_numbers)
+
+        start_borders = start_voice_frame_numbers * frame_shift / sample_rate
+        end_borders = end_voice_frame_numbers * frame_shift / sample_rate
+
+        segments_with_voice = [[round(start_border, 2), round(end_border, 2), True] for start_border, end_border in zip(start_borders, end_borders)]
+        len_audio = round(len(audio_data) / sample_rate, 2)
+
+        # Дополнение временных меток с голосом/звуком остальными участками аудиозаписи
+        filtered_segments_spans = []
+        if segments_with_voice[0][0] != 0.00:
+            filtered_segments_spans.append([0.00, segments_with_voice[0][0], False])
+
+        for j in range(len(segments_with_voice)-1):
+            filtered_segments_spans.append(segments_with_voice[j])
+            filtered_segments_spans.append([segments_with_voice[j][1], segments_with_voice[j+1][0], False])
+        filtered_segments_spans.append(segments_with_voice[-1])
+
+        if filtered_segments_spans[-1][1] != len_audio:
+            filtered_segments_spans.append([segments_with_voice[-1][1], len_audio, False])
+
+        return filtered_segments_spans
+
+
+    def __filter_frames(self, frames, padding_duration_ms=50, threshold_voice_frames=0.9):
         ''' Фильтрация фреймов по наличию речи или каких-либо звуков. Использует скользящее окно для фильтрации: если более 90%
         фреймов в окне содержат звук, то данное окно помечается как окно с речью. Окно дополняется спереди и сзади на padding_duration_ms,
         что бы обеспечить небольшую тишину в начале и конце или что бы отрывок речи был полным.
 
-        1. frames - список объектов vad_utils.Frame
+        1. frames - список объектов webrtcvad_wrapper.Frame
         2. padding_duration_ms - длина дополняемых спереди и сзади частей в миллисекундах
-        3. voice_frames_threshold - порог количества фреймов со звуком в окне
-        4. возвращает список из tuple формата (True/False (где True: речь найдена), [список фреймов webrtcvad_wrapper.Frame])
+        3. threshold_voice_frames - порог количества фреймов со звуком в окне
+        4. возвращает список из списков с границами сегментов следующего формата:
+        [
+            [0.00, 1.23, True/False],
+            ...
+        ]
+        Где:
+            0.00 - начало сегмента
+            1.23 - конец сегмента
+            True/False - True: речь/звук, False: тишина
 
         Оптимальное значение padding_duration_ms для качественных данных без шумов с высокой громкостью речи - 50 мс. '''
 
@@ -106,8 +254,8 @@ class WebRTCVAD:
             raise ValueError("[E] 'frames' имеют разную длину")
         frame_duration_ms = validations_frame_duration[0]
 
-        if voice_frames_threshold > 1 or voice_frames_threshold < 0.01:
-            raise ValueError("[E] 'voice_frames_threshold' имеет недопустимое значение: " + str(voice_frames_threshold))
+        if threshold_voice_frames > 1 or threshold_voice_frames < 0.01:
+            raise ValueError("[E] 'threshold_voice_frames' имеет недопустимое значение: " + str(threshold_voice_frames))
 
         num_padding_frames = int(padding_duration_ms / frame_duration_ms)
         # Используется deque для буфера окна
@@ -123,7 +271,7 @@ class WebRTCVAD:
                 window_buffer.append((frame, is_speech))
                 num_voiced = len([frame for frame, speech in window_buffer if speech])
                 # Если больше 90% фреймов в окне содержат звук, то переход в триггерное состояние
-                if num_voiced > voice_frames_threshold * window_buffer.maxlen:
+                if num_voiced > threshold_voice_frames * window_buffer.maxlen:
                     triggered = True
                     filtered_segments[-1][1] = filtered_segments[-1][1][:len(filtered_segments[-1][1])-window_buffer.maxlen+1]
                     filtered_segments.append([triggered, [window_frame[0] for window_frame in window_buffer]])
@@ -135,7 +283,7 @@ class WebRTCVAD:
                 window_buffer.append((frame, is_speech))
                 num_unvoiced = len([f for f, speech in window_buffer if not speech])
                 # Если больше 90% фреймов в буфере не содержат звук, то переход в нетриггерное состояние
-                if num_unvoiced > voice_frames_threshold * window_buffer.maxlen:
+                if num_unvoiced > threshold_voice_frames * window_buffer.maxlen:
                     triggered = False
                     filtered_segments[-1][1] = filtered_segments[-1][1][:len(filtered_segments[-1][1])-window_buffer.maxlen+1]
                     filtered_segments.append([triggered, [window_frame[0] for window_frame in window_buffer]])
@@ -145,25 +293,42 @@ class WebRTCVAD:
         if len(filtered_segments[0][1]) == 0:
             del filtered_segments[0]
 
+        filtered_segments_spans = []
+        for i in range(len(filtered_segments)):
+            len_segment = len(filtered_segments[i][1]) * filtered_segments[i][1][0].duration
+            if i == 0:
+                start = 0.0
+                end = len_segment
+            else:
+                start = filtered_segments_spans[-1][1]
+                end = start + len_segment
+            filtered_segments_spans.append([round(start, 2), round(end, 2), filtered_segments[i][0]])
+
         # Если не создать объект Vad() заново, то в последующие первые несколько вызовов vad.is_speech() выдаёт True (даже если подать нулевые байты)
         # Занимает по времени примерно 1*10^-5 сек
         self.vad = webrtcvad.Vad()
 
-        return filtered_segments
-    
+        return filtered_segments_spans
 
-    def get_frames(self, audio, frame_duration_ms=10, sample_rate=None):
+
+    def __get_frames(self, audio, frame_duration_ms=10, sample_rate=None):
         ''' Получить фреймы из аудиозаписи.
-        1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка
+        1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка с аудиоданными (без заголовков wav)
         2. frame_duration_ms - длина фрейма в миллисекундах (поддерживается только 10, 20 и 30 мс)
-        3. sample_rate - частота дискретизации (8, 16, 32 и 48кГц), только если audio - байтовая строка
+        3. sample_rate - частота дискретизации (поддерживается только 8, 16, 32 или 48кГц):
+            когда audio - объект pydub.AudioSegment и частота дискретизации None или не поддерживается - будет приведена к ближайшей из поддерживаемых
+            когда audio - байтовая строка, частота дискретизации должна быть задана и поддерживаться
         4. возвращает список из фреймов webrtcvad_wrapper.Frame заданной длины
-        
+
         Оптимальное значение frame_duration_ms для качественных данных без шумов с высокой громкостью речи - 10 мс. '''
 
         if isinstance(audio, AudioSegment):
-            audio_bytes = audio.raw_data
             sample_rate = audio.frame_rate
+            if sample_rate not in [8000, 16000, 32000, 48000]:
+                sample_rate = self.__align_sample_rate(sample_rate)
+                audio = audio.set_frame_rate(sample_rate)
+                sample_rate = audio.frame_rate
+            audio_bytes = audio.raw_data
         elif isinstance(audio, bytes):
             audio_bytes = audio
             if sample_rate is None:
@@ -205,67 +370,52 @@ class WebRTCVAD:
         return sample_rate
 
 
-    def read_wav(self, f_name_wav, sample_rate=None, return_source_sample_rate=False):
-        ''' Загрузить .wav аудиозапись. Поддерживаются только моно аудиозаписи с частотой
-        дискретизации 8, 16, 32 и 48кГц и 2 байта/16 бит. Если параметры у загружаемой аудиозаписи
+    def read_wav(self, f_name_wav, sample_rate=None):
+        ''' Загрузить .wav аудиозапись. Поддерживаются только моно аудиозаписи 2 байта/16 бит. Если параметры у загружаемой аудиозаписи
         отличаются от указанных - она будет приведена в требуемый формат.
-        1. f_name_wav - имя .wav аудиозаписи
-        2. sample_rate - требуемая частота дискретизации (8, 16, 32 и 48кГц) (если None - приводится к ближайшему из поддерживаемых значений)
-        3. возвращает объект pydub.AudioSegment с аудиозаписью и, если return_source_sample_rate=True, исходную частоту дискретизации аудиозаписи '''
+        1. f_name_wav - имя .wav аудиозаписи или BytesIO
+        2. sample_rate - желаемая частота дискретизации (если None - не менять частоту дискретизации)
+        3. возвращает объект pydub.AudioSegment с аудиозаписью '''
 
-        if f_name_wav.rfind('.wav') == -1:
+        if isinstance(f_name_wav, str) and f_name_wav.rfind('.wav') == -1:
             raise ValueError("[E] 'f_name_wav' должна содержать имя .wav аудиозаписи")
 
         audio = AudioSegment.from_wav(f_name_wav)
 
-        source_sample_rate = audio.frame_rate
-        if sample_rate is None:
-            sample_rate = self.__align_sample_rate(source_sample_rate)
-        elif sample_rate not in [8000, 16000, 32000, 48000]:
-            sample_rate = self.__align_sample_rate(sample_rate)
-
-        if source_sample_rate not in [8000, 16000, 32000, 48000]:
+        if sample_rate is not None:
             audio = audio.set_frame_rate(sample_rate)
-
         if audio.sample_width != self.sample_width:
             audio = audio.set_sample_width(self.sample_width)
         if audio.channels != self.channels:
-            audio = audio.split_to_mono()[0]
-
-        if return_source_sample_rate:
-            return audio, source_sample_rate
-        else:
-            return audio
+            audio = audio.set_channels(self.channels)
+        return audio
 
 
-    def write_wav(self, f_name_wav, audio_data, sample_rate=None, desired_sample_rate=None):
+    def write_wav(self, f_name_wav, audio_data, sample_rate=None):
         ''' Сохранить .wav аудиозапись.
-        1. f_name_wav - имя .wav файла, в который будет сохранена аудиозапись
+        1. f_name_wav - имя .wav аудиозаписи, в который будет сохранена аудиозапись или BytesIO
         2. audio_data - может быть:
             - объект pydub.AudioSegment с аудиозаписью
-            - список фреймов [vad_utils.Frame, ...]
-            - байтовая строка с аудиозаписью
-        3. sample_rate - частота дискретизации аудиозаписи (используется когда audio_data - байтовая строка)
-        4. desired_sample_rate - желаемая частота дискретизации (если None - не менять частоту дискретизации) '''
+            - байтовая строка с аудиозаписью (без заголовков wav)
+        3. sample_rate - частота дискретизации аудиозаписи:
+            когда audio_data - байтовая строка, должна соответствовать реальной частоте дискретизации аудиозаписи
+            в остальных случаях частота дискретизации будет приведена к указанной (если None - не менять частоту дискретизации) '''
 
         if isinstance(audio_data, AudioSegment):
-            self.write_wav_from_audiosegment(f_name_wav, audio_data, desired_sample_rate)
-        elif isinstance(audio_data, list):
-            self.write_wav_from_frames(f_name_wav, audio_data, desired_sample_rate)
+            self.write_wav_from_audiosegment(f_name_wav, audio_data, sample_rate)
         elif isinstance(audio_data, bytes):
             if sample_rate is None:
-                raise ValueError("[E] КОгда type(audio_data) = bytes, 'sample_rate' не может быть None")
-            self.write_wav_from_bytes(f_name_wav, audio_data, sample_rate, desired_sample_rate)
+                raise ValueError("[E] Когда type(audio_data) = bytes, 'sample_rate' не может быть None")
+            self.write_wav_from_bytes(f_name_wav, audio_data, sample_rate)
         else:
             raise ValueError("[E] 'audio_data' имеет неподдерживаемый тип. Поддерживаются:\n" + \
                              "\t- объект pydub.AudioSegment с аудиозаписью\n" + \
-                             "\t- список фреймов [vad_utils.Frame, ...]\n" + \
                              "\t- байтовая строка с аудиозаписью")
 
 
     def write_wav_from_audiosegment(self, f_name_wav, audio, desired_sample_rate=None):
         ''' Сохранить .wav аудиозапись.
-        1. f_name_wav - имя .wav файла, в который будет сохранена аудиозапись
+        1. f_name_wav - имя .wav файла, в который будет сохранена аудиозапись или BytesIO
         2. audio - объект pydub.AudioSegment с аудиозаписью
         3. desired_sample_rate - желаемая частота дискретизации (если None - не менять частоту дискретизации) '''
 
@@ -274,32 +424,10 @@ class WebRTCVAD:
         audio.export(f_name_wav, format='wav')
 
 
-    def write_wav_from_frames(self, f_name_wav, frames, desired_sample_rate=None):
-        ''' Сохранить .wav аудиозапись.
-        1. f_name_wav - имя .wav файла, в который будет сохранена аудиозапись
-        2. frames - список фреймов [vad_utils.Frame, ...]
-        3. desired_sample_rate - желаемая частота дискретизации (если None - не менять частоту дискретизации) '''
-
-        if len(frames) == 0:
-            raise ValueError("[E] 'frames' не содержит элементов")
-
-        validations_sample_rate = [int(1 / frame.duration * len(frame.bytes) / 2.0) for frame in frames]
-        if not validations_sample_rate[1:] == validations_sample_rate[:-1]:
-            raise ValueError('[E] Frames имеют разный sample_rate')
-        sample_rate = validations_sample_rate[0]
-        audio_bytes = b''.join([frame.bytes for frame in frames])
-
-        audio = AudioSegment(data=audio_bytes, sample_width=self.sample_width, frame_rate=sample_rate, channels=self.channels)
-        if desired_sample_rate is not None and desired_sample_rate != sample_rate:
-            audio = audio.set_frame_rate(desired_sample_rate)
-
-        audio.export(f_name_wav, format='wav')
-
-
     def write_wav_from_bytes(self, f_name_wav, audio_bytes, sample_rate, desired_sample_rate=None):
         ''' Сохранить .wav аудиозапись.
-        1. f_name_wav - имя .wav файла, в который будет сохранена аудиозапись
-        2. audio_bytes - байтовая строка с аудиозаписью
+        1. f_name_wav - имя .wav файла, в который будет сохранена аудиозапись или BytesIO
+        2. audio_bytes - байтовая строка с аудиозаписью (без заголовков wav)
         3. sample_rate - частота дискретизации
         4. desired_sample_rate - желаемая частота дискретизации (если None - не менять частоту дискретизации) '''
 
@@ -313,36 +441,41 @@ class WebRTCVAD:
 
 
 def main():
-    vad = WebRTCVAD()
-    f_name_audio = 'test_audio/test_full_vad.wav'
-
-    # Тест корректности сохранения исходной, неподдерживаемой по умолчанию, частоты дискретизации
-    audio, source_sample_rate = vad.read_wav(f_name_audio, return_source_sample_rate=True)
+    # Тест корректности работы WebRTC VAD на неподдерживаемой по умолчанию аудио
+    vad = VAD()
+    f_name_audio = 'test_audio/test_vad_1.wav'
+    audio = vad.read_wav(f_name_audio)
     filtered_segments = vad.filter(audio)
 
-    segments_with_voice = [filtered_segment[1] for filtered_segment in filtered_segments if filtered_segment[0]]
-    for j, segment in enumerate(segments_with_voice):
-        f_name_segment = 'segment1_%002d.wav' % (j + 1)
+    segments_with_voice = [[filtered_segment[0], filtered_segment[1]] for filtered_segment in filtered_segments if filtered_segment[-1]]
+    for i, segment in enumerate(segments_with_voice):
+        f_name_segment = 'segment1_%002d.wav' % (i + 1)
         print('Сохранение %s' % (f_name_segment))
-        vad.write_wav(f_name_segment, segment, desired_sample_rate=source_sample_rate)
+        vad.write_wav(f_name_segment, audio[segment[0]*1000:segment[1]*1000])
 
-    #------------#
+    # Тест дополнительного агрессивного режима (sensitivity_mode=4)
+    vad.set_mode(4)
+    filtered_segments = vad.filter(audio.raw_data, sample_rate=audio.frame_rate)
 
-    f_name_audio = 'test_audio/test_fa_vad.wav'
+    segments_with_voice = [[filtered_segment[0], filtered_segment[1]] for filtered_segment in filtered_segments if filtered_segment[-1]]
+    audio_without_silence = audio[segments_with_voice[0][0]*1000:segments_with_voice[0][1]*1000]
+    for segment in segments_with_voice[1:]:
+        audio_without_silence += audio[segment[0]*1000:segment[1]*1000]
+    f_name_segment = 'segment_without_silence.wav'
+    print('Сохранение %s' % f_name_segment)
+    vad.write_wav(f_name_segment, audio_without_silence)
 
-    # Тест корректности работы VAD
+    # Тест корректности работы WebRTC VAD
+    f_name_audio = 'test_audio/test_vad_2.wav'
+    vad.set_mode(3)
     audio = vad.read_wav(f_name_audio)
-    frames = vad.get_frames(audio)
-    filtered_segments = vad.filter_frames(frames)
+    filtered_segments = vad.filter(audio)
 
-    segments_with_voice = [filtered_segment[1] for filtered_segment in filtered_segments if filtered_segment[0]]
-    for j, segment in enumerate(segments_with_voice):
-        f_name_segment = 'segment2_%002d.wav' % (j + 1)
+    segments_with_voice = [[filtered_segment[0], filtered_segment[1]] for filtered_segment in filtered_segments if filtered_segment[-1]]
+    for i, segment in enumerate(segments_with_voice):
+        f_name_segment = 'segment2_%002d.wav' % (i + 1)
         print('Сохранение %s' % (f_name_segment))
-        vad.write_wav(f_name_segment, segment)
-    
-    # Перевод фреймов в байтовую строку (без заголовков .wav, чисто данные):
-    # audio_bytes = b''.join([frame.bytes for frame in frames])
+        vad.write_wav(f_name_segment, audio[segment[0]*1000:segment[1]*1000])
 
 
 if __name__ == '__main__':

@@ -4,14 +4,14 @@
 #       OS : GNU/Linux Ubuntu 16.04 or 18.04
 # LANGUAGE : Python 3.5.2 or later
 #   AUTHOR : Klim V. O.
-#     DATE : 10.10.2019
+#     DATE : 14.10.2019
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 import os
 from setuptools import setup, find_packages
 
 
-__version__ = 1.0
+__version__ = 1.1
 
 
 with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'README.md'), encoding='utf-8') as f:
@@ -20,13 +20,19 @@ with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'README.md'),
 
 install_requires = [
     "pydub==0.23.1",
-    "webrtcvad==2.0.10"
+    "webrtcvad==2.0.10",
+    "librosa==0.7.1"
 ]
 
 
 setup(
     name='webrtcvad-wrapper',
     packages=find_packages(),
+    include_package_data=True,
+    entry_points={
+        'console_scripts':
+            ['webrtcvad_wrapper = webrtcvad_wrapper.cli:cli']
+        },
     classifiers=[
         "Intended Audience :: Developers",
         "License :: OSI Approved :: Apache Software License",

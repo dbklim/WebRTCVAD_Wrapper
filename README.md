@@ -6,9 +6,20 @@
 
 **WebRTCVAD_Wrapper** упрощает работу с WebRTC VAD: избавляет пользователя от необходимости самому извлекать фреймы/кадры из аудиозаписи и снимает ограничения на параметры обрабатываемой аудиозаписи.
 
+Так же он содержит **дополнительный режим работы**, который является отдельным, более **грубым и строгим алгоритмом VAD**, основанным на вычислении мощности звуковой волны и частот пересечения нуля. Данный режим будет полезен при подготовке аудиозаписей для обучения нейронной сети, так как он **часто игнорирует вообще всё, кроме гласных и звонких согласных звуков в речи** (или просто громких звуков). Его можно использовать, например, в нейронной сети, предназначенной для:
+
+- классификации пола человека по его речи (gender classification/recognition)
+- классификации эмоций человека по его речи (emotion classification/recognition)
+- идентификации человека по его голосу (speaker identification/verification)
+- классификации аудиозаписей
+- разделении голосов (speaker diarization)
+- корректировки результатов сведения текста с аудиозаписью (forced alignment)
+
+Однако его нельзя использовать в распознавании речи, потому что данный режим не гарантирует сохранность всех фонем в речи.
+
 ## Установка
 
-Данная обёртка имеет следующие зависимости: [pydub](https://github.com/jiaaro/pydub) и [py-webrtcvad](https://github.com/wiseman/py-webrtcvad).
+Данная обёртка имеет следующие зависимости: [pydub](https://github.com/jiaaro/pydub), [librosa](https://github.com/librosa/librosa) и [py-webrtcvad](https://github.com/wiseman/py-webrtcvad).
 
 Установка с помощью pip:
 ```
@@ -21,55 +32,60 @@ pip install git+https://github.com/Desklop/WebRTCVAD_Wrapper
 ```python
 from webrtcvad_wrapper import WebRTCVAD
 
-vad = WebRTCVAD(sensitivity_mode=3)
-
+vad = VAD(sensitivity_level=3)
 audio = vad.read_wav('test.wav')
 filtered_segments = vad.filter(audio)
 
-segments_with_voice = [filtered_segment[1] for filtered_segment in filtered_segments if filtered_segment[0]]
-for j, segment in enumerate(segments_with_voice):
-    path = 'segment_%002d.wav' % (j + 1)
-    print("Сохранение '%s'" % (path))
-    vad.write_wav(path, segment)
+segments_with_voice = [[filtered_segment[0], filtered_segment[1]] for filtered_segment in filtered_segments if filtered_segment[-1]]
+for i, segment in enumerate(segments_with_voice):
+    vad.write_wav('segment_%002d.wav' % (i + 1), audio[segment[0]*1000:segment[1]*1000])
 ```
 
-Класс [WebRTCVAD](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L37) содержит следующие методы:
-- [`read_wav()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L208): загрузка .wav аудиозаписи и приведение её в поддерживаемый формат
-- [`write_wav()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L241): сохранение найденных фрагментов в .wav аудиозапись
-- [`get_frames()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L155): извлечение фреймов с необходимым смещением
-- [`filter_frames()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L87): обработка вывода от `webrtcvad.Vad().is_speech()`
-- [`filter()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L66): объединяет `get_frames()` и `filter_frames()`
-- [`set_mode()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L57): установка чувствительности WebRTC VAD
+Очистка аудиозаписи от тишины (например, для обучения нейронной сети) (извлечение фрагментов с речью/звуком из `test.wav`, объединение их в одну аудиозапись и сохранение как `test_without_silence.wav`):
+```python
+vad.set_mode(sensitivity_level=4)
+audio = vad.read_wav('test.wav')
+filtered_segments = vad.filter(audio)
 
-Более подробная информация о поддерживаемых аргументах и работе каждого метода находится в комментариях в исходном коде этих методов.
+segments_with_voice = [[filtered_segment[0], filtered_segment[1]] for filtered_segment in filtered_segments if filtered_segment[-1]]
+audio_without_silence = audio[segments_with_voice[0][0]*1000:segments_with_voice[0][1]*1000]
+for segment in segments_with_voice[1:]:
+    audio_without_silence += audio[segment[0]*1000:segment[1]*1000]
+vad.write_wav('test_without_silence.wav', audio_without_silence)
+```
+
+Класс [VAD](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L39) содержит следующие методы:
+- [`read_wav()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L373): принимает имя .wav аудиозаписи, приводит её в поддерживаемый формат (см. ниже) и возвращает объект `pydub.AudioSegment` с аудиозаписью
+- [`write_wav()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L394): принимает имя .wav аудиозаписи, объект `pydub.AudioSegment` (или байтовую строку с аудиоданными без заголовков wav) и сохраняет аудиозапись под переданным именем
+- [`filter()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L77): принимает объект `pydub.AudioSegment` (или байтовую строку с аудиоданными без заголовков wav), разбивает аудиозапись на фреймы, фильтрует их по наличию речи/звука (с помощью `webrtcvad.Vad().is_speech()` или дополнительным алгоритмом VAD, в зависимости от заданного уровня чувствительности) и возвращает список из списков с границами сегментов: `[[0.00, 1.23, True/False], ...]` (где `0.00` - начало сегмента (в секундах), `1.23` - конец сегмента, `True/False` - `True`: речь/звук, `False`: тишина)
+- [`set_mode()`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L63): принимает целое число от `0` до `4`, которое задаёт уровень чувствительности VAD (значение от `0` до `3` - уровень чувствительности WebRTC VAD, значение `4` - отключение WebRTC VAD и использование дополнительного алгоритма VAD)
+
+Подробная информация о поддерживаемых аргументах и работе каждого метода находится в комментариях в исходном коде этих методов.
 
 Особенности:
 - WebRTC VAD принимает только PCM 16 бит, моно с частотой дискретизации 8, 16, 32 или 48кГц, по этому метод `read_wav()` автоматически приводит вашу wav аудиозапись в необходимый формат
 - WebRTC VAD работает только с фреймами/кадрами длиной 10, 20 или 30 миллисекунд, об этом заботится метод `get_frames()`
-- метод `set_mode()` позволяет задать уровень чувствительности (его так же можно задать при создании объекта `WebRTCVAD(0)`), поддерживаются значения от `0` до `3`, где `3` - максимальная чувствительность (по умолчанию используется значение `3`)
-- методы `get_frames()`, `filter_frames()` и `filter()` возвращают список из фреймов [`webrtcvad_wrapper.Frame`](https://github.com/Desklop/WebRTCVAD_Wrapper/blob/master/webrtcvad_wrapper/webrtcvad_wrapper.py#L29), которые можно легко конвертировать в байтовою строку (без заголовков .wav, только аудиоданные):
-```python
-audio = vad.read_wav('test.wav')
-filtered_segments = vad.filter(audio)
-
-segments_with_voice = [filtered_segment[1] for filtered_segment in filtered_segments if filtered_segment[0]]
-segments_bytes_with_voice = [b''.join([frame.bytes for frame in segment]) for segment in segments_with_voice]
-```
+- метод `set_mode()` позволяет задать уровень чувствительности (его так же можно задать при создании объекта `VAD(0)`), поддерживаются значения от `0` до `4`, где `4` - максимальная чувствительность (по умолчанию используется значение `3`). Значения от `0` до `3` являются базовыми для WebRTC VAD, значение `4` включает использование отдельного, более грубого и строгого алгоритма VAD, основанного на вычислении мощности звуковой волны и частот пересечения нуля
 
 ---
 
 **2.** В качестве инструмента командной строки:
 ```
-python3 -m webrtcvad_wrapper.cli input.wav output.wav
+python3 -m webrtcvad_wrapper.cli --mode=3 input.wav output.wav
 ```
+или
+```
+webrtcvad_wrapper --mode=3 input.wav output.wav
+```
+
 Где:
-- `input.wav` - имя исходного .wav аудиозаписи
+- `--mode=3` - режим чувствительности, целое число от `0` до `4` (если не передавать аргумент - использовать значение `3`)
+- `input.wav` - имя исходной .wav аудиозаписи
 - `output.wav` или `output` - шаблонное имя для .wav аудиозаписей, в которые будут сохранены найденные фрагменты с речью/звуком в формате `output_%i.wav`
 
 В данном варианте используются следующие параметры:
-- WebRTC VAD с уровнем "агрессивности"/чувствительности `3`
 - длина фрейма `10` миллисекунд
-- фрагмент считается фрагментом с речью/звуком, если он содержит более `90%` фреймов, в которых webrtcvad нашёл речь/звук
+- фрагмент считается фрагментом с речью/звуком, если он содержит более `90%` фреймов, в которых WebRTC VAD (или дополнительный алгоритм VAD) нашёл речь/звук
 
 ---
 
