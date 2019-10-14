@@ -45,7 +45,7 @@ def cli():
             filtered_segments = vad.filter(audio)
             segments_with_voice = [[filtered_segment[0], filtered_segment[1]] for filtered_segment in filtered_segments if filtered_segment[-1]]
             for i, segment in enumerate(segments_with_voice):
-                if sys.argv[2].rfind('.wav') != -1:
+                if sys.argv[3].rfind('.wav') != -1:
                     f_name_segment = sys.argv[3][:sys.argv[3].rfind('.wav')] + '_%i.wav' % (i + 1)
                 else:
                     f_name_segment = sys.argv[3] + '_%i.wav' % (i + 1)
