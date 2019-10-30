@@ -19,9 +19,9 @@ with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'README.md'),
 
 
 install_requires = [
-    "pydub==0.23.1",
-    "webrtcvad==2.0.10",
-    "librosa==0.7.1"
+    'pydub==0.23.1',
+    'webrtcvad==2.0.10',
+    'librosa==0.7.1'
 ]
 
 
@@ -34,29 +34,31 @@ setup(
             ['webrtcvad_wrapper = webrtcvad_wrapper.cli:cli']
         },
     classifiers=[
-        "Intended Audience :: Developers",
-        "License :: OSI Approved :: Apache Software License",
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3.5",
-        "Programming Language :: Python :: 3.6",
-        "Topic :: Software Development :: Libraries",
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: Apache Software License',
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Topic :: Software Development :: Libraries',
     ],
     version=__version__,
     install_requires=install_requires,
-    description="WebRTCVAD-Wrapper is a simple wrapper to simplify working with WebRTCVAD",
+    description='WebRTCVAD-Wrapper is a simple wrapper to simplify working with WebRTCVAD',
     long_description=long_description,
-    long_description_content_type="text/markdown",
+    long_description_content_type='text/markdown',
     author='Vlad Klim',
     author_email='valdsklim@gmail.com',
     license='Apache 2.0',
-    url="https://github.com/Desklop/WebRTCVAD_Wrapper",
-    keywords="vad voice-activity-detection silence-suppression webrtc rtc dsp audio audio-processing wav nlp",
+    url='https://github.com/Desklop/WebRTCVAD_Wrapper',
+    keywords='vad voice-activity-detection silence-suppression webrtc rtc dsp audio audio-processing wav nlp',
     project_urls={
         'Source': 'https://github.com/Desklop/WebRTCVAD_Wrapper',
     }
 )
 
-print("\nWebRTCVAD-Wrapper is ready for work and defense!")
-print("All information about the module is available at https://github.com/Desklop/WebRTCVAD_Wrapper")
 
-# Для сборки пакета выполнить: python3 setup.py sdist
+print('\nWebRTCVAD-Wrapper is ready for work and defense!')
+print('All information about the module is available at https://github.com/Desklop/WebRTCVAD_Wrapper')
+
+# To build package run: python3 setup.py sdist
