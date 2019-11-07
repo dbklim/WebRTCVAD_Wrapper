@@ -56,7 +56,6 @@ class VAD:
     sample_width = 2
     channels = 1
     def __init__(self, sensitivity_mode=3):
-        self.vad = webrtcvad.Vad()
         self.set_mode(sensitivity_mode)
 
 
@@ -69,8 +68,6 @@ class VAD:
         
         Оптимальное значение для качественных данных без шумов с высокой громкостью речи - 3. '''
 
-        if sensitivity_mode < 4:
-            self.vad.set_mode(sensitivity_mode)
         self.sensitivity_mode = sensitivity_mode
 
 
@@ -261,12 +258,17 @@ class VAD:
         # Используется deque для буфера окна
         window_buffer = collections.deque(maxlen=num_padding_frames)
 
+        # Это костыль. Если не создать объект webrtcvad.Vad() каждый раз заново или не 'обновлять' уровень чувствительности, то в следующие первые
+        # несколько (обычно 2-15) вызовов vad.is_speech() выдаёт True вне зависимости от переданных данных (даже если подать нулевые байты)
+        # Занимает по времени примерно 5-10*10^-6 сек (0.000005-0.00001 сек)
+        vad = webrtcvad.Vad(self.sensitivity_mode)
+
         # Есть два состояния: триггерное и нетриггерное. В самом начале установлено нетриггерное состояние
         triggered = False
         filtered_segments = []
         filtered_segments.append([triggered, []])
         for frame in frames:
-            is_speech = self.vad.is_speech(frame.bytes, sample_rate)
+            is_speech = vad.is_speech(frame.bytes, sample_rate)
             if not triggered:
                 window_buffer.append((frame, is_speech))
                 num_voiced = len([frame for frame, speech in window_buffer if speech])
@@ -304,10 +306,8 @@ class VAD:
                 end = start + len_segment
             filtered_segments_spans.append([round(start, 2), round(end, 2), filtered_segments[i][0]])
 
-        # Это костыль. Если не создать объект webrtcvad.Vad() заново или не 'обновлять' уровень чувствительности, то в следующие первые несколько (обычно 2-15)
-        # вызовов vad.is_speech() выдаёт True вне зависимости от переданных данных (даже если подать нулевые байты)
-        # Занимает по времени примерно 5-10*10^-6 сек (0.000005-0.00001 сек)
-        self.set_mode(self.sensitivity_mode)
+        #self.set_mode(self.sensitivity_mode)
+        del vad
 
         return filtered_segments_spans
 
