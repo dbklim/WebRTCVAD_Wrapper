@@ -304,9 +304,10 @@ class VAD:
                 end = start + len_segment
             filtered_segments_spans.append([round(start, 2), round(end, 2), filtered_segments[i][0]])
 
-        # Если не создать объект Vad() заново, то в последующие первые несколько вызовов vad.is_speech() выдаёт True (даже если подать нулевые байты)
-        # Занимает по времени примерно 1*10^-5 сек
-        self.vad = webrtcvad.Vad()
+        # Это костыль. Если не создать объект webrtcvad.Vad() заново или не 'обновлять' уровень чувствительности, то в следующие первые несколько (обычно 2-15)
+        # вызовов vad.is_speech() выдаёт True вне зависимости от переданных данных (даже если подать нулевые байты)
+        # Занимает по времени примерно 5-10*10^-6 сек (0.000005-0.00001 сек)
+        self.set_mode(self.sensitivity_mode)
 
         return filtered_segments_spans
 
