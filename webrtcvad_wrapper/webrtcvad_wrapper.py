@@ -306,9 +306,7 @@ class VAD:
                 end = start + len_segment
             filtered_segments_spans.append([round(start, 2), round(end, 2), filtered_segments[i][0]])
 
-        #self.set_mode(self.sensitivity_mode)
         del vad
-
         return filtered_segments_spans
 
 
