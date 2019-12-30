@@ -80,6 +80,9 @@ class VAD:
         Затем сохранённые фреймы переводятся во временные метки в исходной аудиозаписи.
         В данном режиме аргументы threshold_rms и threshold_zcr игнорируются.
 
+        ВНИМАНИЕ! Если длина аудиозаписи не кратна размеру 1 фрейма - она будет дополнена нулями до необходимой длины (справедливо только при
+        sensitivity_mode=0..3).
+
         Если sensitivity_mode=4:\n
         Метод агрессивный, часто игнорирует вообще всё, кроме гласных и звонких согласных звуков в речи (или просто громких звуков). Фильтрация работает так:
         на основе RMS (root-mean-square, отражает мощность звуковой волны) и ZCR (zero-crossing rate, частоты пересечения нуля) по заданным порогам
@@ -87,6 +90,8 @@ class VAD:
         В данном режиме аргументы padding_duration_ms и threshold_voice_frames игнорируются.
 
         sensitivity_mode можно задать через метод set_mode().
+
+        ВНИМАНИЕ! Поддерживаются только моно аудиозаписи с шириной семпла 2 байта.
 
         1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка с аудиоданными (без заголовков wav)
         2. frame_duration_ms - длина фрейма в миллисекундах (поддерживается только 10, 20 и 30 мс)
@@ -312,6 +317,9 @@ class VAD:
 
     def __get_frames(self, audio, frame_duration_ms=10, sample_rate=None):
         ''' Получить фреймы из аудиозаписи.
+        
+        ВНИМАНИЕ! Если длина аудиозаписи не кратна размеру 1 фрейма - она будет дополнена нулями до необходимой длины.
+
         1. audio - объект pydub.AudioSegment с аудиозаписью или байтовая строка с аудиоданными (без заголовков wav)
         2. frame_duration_ms - длина фрейма в миллисекундах (поддерживается только 10, 20 и 30 мс)
         3. sample_rate - частота дискретизации (поддерживается только 8, 16, 32 или 48кГц):
@@ -346,10 +354,12 @@ class VAD:
         timestamp = 0.0
         duration = (float(frame_width) / sample_rate) / 2.0
         frames = []
-        while offset + frame_width < len(audio_bytes):
+        while offset + frame_width <= len(audio_bytes):
             frames.append(Frame(audio_bytes[offset:offset + frame_width], timestamp, duration))
             timestamp += duration
             offset += frame_width
+        if len(audio_bytes) % frame_width != 0 and offset + frame_width > len(audio_bytes):
+            frames.append(Frame(audio_bytes[offset:]+b'\x00'*(offset+frame_width-len(audio_bytes)), timestamp, duration))
         return frames
 
 

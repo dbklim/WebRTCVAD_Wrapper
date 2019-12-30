@@ -11,7 +11,7 @@ import os
 from setuptools import setup, find_packages
 
 
-__version__ = 1.2
+__version__ = 1.3
 
 
 with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'README.md'), encoding='utf-8') as f:
