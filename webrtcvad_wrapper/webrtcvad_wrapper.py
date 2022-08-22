@@ -1,11 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#       OS : GNU/Linux Ubuntu 16.04 or 18.04
-# LANGUAGE : Python 3.5.2 or later
-#   AUTHOR : Klim V. O.
-#     DATE : 14.10.2019
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# OS: GNU/Linux, Author: Klim V. O.
 
 '''
 Предназначен для удаления тишины/извлечения фрагментов с речью (или другими звуками) из wav аудиозаписи.
@@ -16,8 +11,6 @@
 Зависимости: pydub, librosa, webrtcvad.
 '''
 
-import os
-import sys
 import collections
 from pydub import AudioSegment
 import webrtcvad
@@ -25,7 +18,7 @@ import librosa
 import numpy as np
 
 
-__version__ = 1.1
+__version__ = 1.4
 
 
 class Frame(object):
@@ -166,7 +159,7 @@ class VAD:
         frame_shift = int(frame_duration_ms / 2 * sample_rate / 1000)
 
         # Вычисление RMS (отражает мощность звуковой волны)
-        rms = librosa.feature.rms(audio_data, frame_length=frame_len, hop_length=frame_shift)
+        rms = librosa.feature.rms(y=audio_data, frame_length=frame_len, hop_length=frame_shift)
         rms = rms[0]
         rms = librosa.util.normalize(rms, axis=0)
 

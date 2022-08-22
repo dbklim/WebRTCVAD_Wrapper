@@ -11,7 +11,7 @@ import os
 from setuptools import setup, find_packages
 
 
-__version__ = 1.3
+__version__ = 1.4
 
 
 with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'README.md'), encoding='utf-8') as f:
@@ -19,9 +19,9 @@ with open(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'README.md'),
 
 
 install_requires = [
-    'pydub==0.23.1',
+    'pydub>=0.23.1',
     'webrtcvad==2.0.10',
-    'librosa==0.7.1'
+    'librosa>=0.7.1'
 ]
 
 

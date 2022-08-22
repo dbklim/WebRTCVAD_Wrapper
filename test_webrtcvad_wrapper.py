@@ -1,11 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#       OS : GNU/Linux Ubuntu 16.04 or 18.04
-# LANGUAGE : Python 3.5.2 or later
-#   AUTHOR : Klim V. O.
-#     DATE : 14.10.2019
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# OS: GNU/Linux, Author: Klim V. O.
 
 '''
 Тесты для WebRTCVAD_Wrapper.
